@@ -369,7 +369,7 @@ local function sentrifyStack(stack)
 	local ret = {}
 	for i, frame in ipairs(stack) do
 		ret[i] = {
-			filename = frame["source"]:sub(2),
+			filename = frame["source"],--:sub(2),
 			["function"] = frame["name"] or "<unknown>",
 			module = modulify(frame["source"]),
 			lineno = frame["currentline"],
@@ -737,6 +737,65 @@ local function OnLuaError(is_runtime, rawErr, file, lineno, err, stack)
 	end
 
 	proccessException(err, stack)
+end
+
+file.CreateDir("clientluaerror")
+
+---
+-- The gm_luaerror hook at the heart of this module
+-- @param ply The player that received the error
+-- @param is_runtime If this error was a compile error or a runtime error. Largely irrelevent.
+-- @param rawErr The full error that gets printed in console.
+-- @param file The filename extracted from rawErr
+-- @param lineno The line number extracte from rawErr
+-- @param err The error string extracted from rawErr
+-- @param stack The captured stack trace for the error. May be empty
+-- @return Nothing or you'll break everything
+local function OnClientLuaError(ply, rawErr, file, lineno, err, stack)
+	if not shouldReport(rawErr) then
+		return
+	end
+
+	if (#stack == 0) then
+		stack[1] = {
+			name = "<unknown>",
+			source = '@' .. file,
+			currentline = lineno,
+		}
+	end
+
+	local extra
+	if IsValid(ply) and ply:IsPlayer() then
+		extra = {
+			user = ply
+		}
+	end
+
+	print(rawErr)
+	print(file, lineno)
+	print(err)
+	PrintTable(stack)
+
+	local contents = {
+		"ply:",
+		ply:Nick() .. " " .. ply:SteamID(),
+		"",
+		"rawErr:",
+		rawErr,
+		"",
+		"file: " .. file .. " - lineno: " .. lineno,
+		"",
+		"err:",
+		err,
+		"",
+		"stack:",
+		table.concat(stack, "\n")
+	}
+
+	local fileName = "clientluaerror/" .. os.date("%Y-%m-%d %H-%M-%S") .. ".txt"
+	file.Write(fileName, contents)
+
+	proccessException(err, stack, extra)
 end
 
 ---
@@ -1282,8 +1341,10 @@ function Setup(dsn, extra)
 
 	luaerror.EnableRuntimeDetour(true)
 	luaerror.EnableCompiletimeDetour(true)
+	luaerror.EnableClientDetour(true)
 
 	hook.Add("LuaError", "Sentry Integration", OnLuaError)
+	hook.Add("ClientLuaError", "Sentry Integration", OnClientLuaError)
 
 	-- Once the server has initialised, get all the things with a "version" field
 	hook.Add("Initialize", "Sentry Integration", detectModules)
